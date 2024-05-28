@@ -1,9 +1,8 @@
+mod boyermoore;
 use std::env;
 use std::fs::File;
 use std::io::{self, prelude::*, BufReader};
-use std::collections::HashMap;
-use std::cmp;
-use boyer_moore_magiclen::*;
+use colored::Colorize;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -12,80 +11,38 @@ fn main() -> io::Result<()> {
 
     let input_file_path: &String = &args[2];
 
-    let mut bad_char_table: HashMap<char, i32> =  bad_char_table(input_pattern.to_string());
     let mut line_num: i32 = 1;
 
     let file = File::open(input_file_path)?;
     let reader = BufReader::new(file);
-    
+
+    //TODO: total f'ing refactor this hogwash
      for line in reader.lines() {
+        let line_string: String = line.unwrap().clone();
+         let line_string_for_byte: String = line_string.clone();
+        let bm_bytes = boyermoore::Byte::from(input_pattern).unwrap();
+        let hits: Vec<usize> = bm_bytes.find_full_all_in(line_string_for_byte);
+        for hit in hits {
+            let after_hit_index: i32 = hit as i32 + input_pattern.len() as i32;
+            let thing: Vec<char> = line_string.chars().collect();
+            let prefix: String = thing.get(..hit).unwrap().iter().collect();
+            let hit: String = thing.get(hit..(hit + (input_pattern.len()))).unwrap().iter().collect();
+            let suffix: String = thing.get(after_hit_index as usize..).unwrap().iter().collect();
 
-        let bm_bytes = BMByte::from(input_pattern).unwrap();
-        let item: Vec<usize> = bm_bytes.rfind_full_all_in(line.unwrap());
-        
-        //for hit in item {
-       // }
+            let output_string = format!(
+                "{}: {}{}{}",
+                line_num.to_string().cyan(),
+                prefix,
+                hit.red(),
+                suffix
+            );
+            println!("{output_string}")
 
-        
-       // compare(input_pattern.chars().collect(), line.unwrap().chars().collect(),  &mut bad_char_table, line_num);
+       }
         line_num = line_num+1;
 
 
      }
     
      Ok(())
-} 
-
-fn bad_char_table(pattern: String) -> HashMap<char, i32> {
-    
-    let mut table = HashMap::new();
-
-    let char_arr: Vec<char> = pattern.chars().collect();
-    let length: i32 = char_arr.len() as i32;
-
-    for (index, char) in char_arr.iter().enumerate() {
-       
-        table.insert(*char, cmp::max(1, length - (index as i32) - 1));
-
-
-    }
-
-    return table;
-
 }
-/*
-fn compare(pattern: Vec<char>, text: Vec<char>, bad_char_table: &mut HashMap<char,i32>, line_num: i32){
-   
-    //let pat_loc = (pattern.len() as i32)-1;
-    //let text_loc = pat_loc;
-    //
-    let line_string: String = String::from_iter(&text);
-    let mut shift: i32 = 0;
-
-    let m: i32 = pattern.len() as i32;
-    let n: i32 = text.len() as i32;
-
-    while shift <= (n - m) {
-
-        let mut j: i32 = m - 1;
-
-        while j >= 0 && pattern[j as usize] == text[(shift + j) as usize] {j = j - 1;}
-
-            if j < 0 {
-                
-                println!("Patterns occur at shift = {}", shift);
-                println!("{}: {}", line_num, line_string);
-                shift += if shift + m < n {m - *bad_char_table.entry(text[(shift + m)as usize]).or_insert(m)} else {1};
-
-                
-            } else {shift += cmp::max(1, j - *bad_char_table.entry(text[(shift + j)as usize]).or_insert(m))}
-
-
-    }
-
-
-
-
-
-}
-*/
