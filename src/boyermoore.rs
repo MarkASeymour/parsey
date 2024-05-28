@@ -1,4 +1,5 @@
 use core::{ops::Deref, slice::Iter};
+use colored::Colorize;
 
 pub trait ByteSearchable {
     fn len(&self) -> usize;
@@ -6,6 +7,9 @@ pub trait ByteSearchable {
     fn value_at(&self, index: usize) -> u8;
 
     fn iter(&self) -> Iter<u8>;
+    
+    fn stringify(&self) -> String;
+    
 }
 //
 impl ByteSearchable for String {
@@ -23,6 +27,11 @@ impl ByteSearchable for String {
     fn iter(&self) -> Iter<u8> {
         self.as_bytes().iter()
     }
+
+    #[inline]
+    fn stringify(&self) -> String {
+        String::clone(self)
+    }
 }
 impl ByteSearchable for Vec<u8> {
     #[inline]
@@ -39,6 +48,10 @@ impl ByteSearchable for Vec<u8> {
     fn iter(&self) -> Iter<u8> {
         self.as_slice().iter()
     }
+    #[inline]
+    fn stringify(&self) -> String {
+        String::from_utf8(self.clone()).unwrap()
+    }
 }
 impl<T: ByteSearchable> ByteSearchable for &T {
     #[inline]
@@ -54,6 +67,11 @@ impl<T: ByteSearchable> ByteSearchable for &T {
     #[inline]
     fn iter(&self) -> Iter<u8> {
         <dyn ByteSearchable>::iter(*self)
+    }
+
+    #[inline]
+    fn stringify(&self) -> String {
+        <dyn ByteSearchable>::stringify(*self)
     }
 }
 
@@ -126,11 +144,15 @@ impl Byte {
             pattern: pattern.iter().copied().collect(),
         })
     }
+
 }
 
 impl Byte {
-    pub fn find_full_all_in<T: ByteSearchable>(&self, text: T) -> Vec<usize> {
-        find_full(text, &self.pattern, &self.bad_char_map_rev, 0)
+    pub fn find_full_all_in<T: ByteSearchable>(&self, text: T, line_number: i32) {
+        let line_text: String = text.stringify();
+        let result: Vec<usize> = find_full(text, &self.pattern.clone(), &self.bad_char_map_rev, 0);
+        display_and_format(result, line_text, self.pattern.clone(), line_number);
+
     }
 }
 
@@ -142,7 +164,7 @@ pub fn find_full<TT: ByteSearchable, TP: ByteSearchable>(
 ) -> Vec<usize> {
     let text_len = text.len();
     let pattern_len = pattern.len();
-
+    let mut result = vec![];
     if text_len == 0 || pattern_len == 0 || text_len < pattern_len {
         return vec![];
     }
@@ -155,7 +177,7 @@ pub fn find_full<TT: ByteSearchable, TP: ByteSearchable>(
 
     let start_index = pattern_len_dec;
 
-    let mut result = vec![];
+
 
     'outer: loop {
         for (i, pc) in pattern.iter().copied().enumerate() {
@@ -209,6 +231,59 @@ pub fn find_full<TT: ByteSearchable, TP: ByteSearchable>(
             break;
         }
     }
-
     result
 }
+
+fn display_and_format(result: Vec<usize>, text: String, pattern: Vec<u8>, line_num: i32) {
+    for matched in result {
+        let outable = ResultSet::from(matched, text.clone(), pattern.clone(), line_num).output_string;
+        println!("{outable}")
+    }
+
+}
+
+
+
+struct ResultSet {
+    ps: String,
+    ts: String,
+    hit: usize,
+    output_string: String,
+    line_num: i32
+}
+
+impl ResultSet {
+    fn from( hit: usize, text: String, pattern: Vec<u8>, line_num: i32) -> ResultSet {
+        let ps = String::from_utf8(pattern).unwrap();
+        let ts = text;
+        let output_string = build_output(hit, ps.clone(), ts.clone(), line_num.to_string());
+
+        ResultSet { ps, ts, hit, output_string, line_num }
+
+
+    }
+}
+
+fn build_output(hit: usize, ps: String, ts: String, line_num: String) -> String {
+    let ph_index: usize = (hit as i32 + ps.len() as i32) as usize;
+
+    let t_arr: Vec<char> = ts.chars().collect();
+
+    let prefix: String = t_arr.get(..hit).unwrap().iter().collect();
+
+    let matched: String = t_arr.get(hit..(hit + (ps.len()))).unwrap().iter().collect();
+
+    let suffix: String = t_arr.get(ph_index..).unwrap().iter().collect();
+
+    format!(
+        "{}: {}{}{}",
+        line_num.bright_purple(),
+        prefix,
+        matched.red(),
+        suffix
+
+    )
+
+}
+
+
