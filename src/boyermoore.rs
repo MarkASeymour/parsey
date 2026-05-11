@@ -1,289 +1,97 @@
-use core::{ops::Deref, slice::Iter};
-use colored::Colorize;
+// Literal prefix fast skip. Engine invokes the regex NFA only at hits.
 
-pub trait ByteSearchable {
-    fn len(&self) -> usize;
-
-    fn value_at(&self, index: usize) -> u8;
-
-    fn iter(&self) -> Iter<u8>;
-    
-    fn stringify(&self) -> String;
-    
-}
-//
-impl ByteSearchable for String {
-    #[inline]
-    fn len(&self) -> usize {
-        String::len(self)
-    }
-
-    #[inline]
-    fn value_at(&self, index: usize) -> u8 {
-        self.as_bytes()[index]
-    }
-
-    #[inline]
-    fn iter(&self) -> Iter<u8> {
-        self.as_bytes().iter()
-    }
-
-    #[inline]
-    fn stringify(&self) -> String {
-        String::clone(self)
-    }
-}
-impl ByteSearchable for Vec<u8> {
-    #[inline]
-    fn len(&self) -> usize {
-        Vec::len(self)
-    }
-
-    #[inline]
-    fn value_at(&self, index: usize) -> u8 {
-        self[index]
-    }
-
-    #[inline]
-    fn iter(&self) -> Iter<u8> {
-        self.as_slice().iter()
-    }
-    #[inline]
-    fn stringify(&self) -> String {
-        String::from_utf8(self.clone()).unwrap()
-    }
-}
-impl<T: ByteSearchable> ByteSearchable for &T {
-    #[inline]
-    fn len(&self) -> usize {
-        <dyn ByteSearchable>::len(*self)
-    }
-
-    #[inline]
-    fn value_at(&self, index: usize) -> u8 {
-        <dyn ByteSearchable>::value_at(*self, index)
-    }
-
-    #[inline]
-    fn iter(&self) -> Iter<u8> {
-        <dyn ByteSearchable>::iter(*self)
-    }
-
-    #[inline]
-    fn stringify(&self) -> String {
-        <dyn ByteSearchable>::stringify(*self)
-    }
+/// Boyer Moore substring searcher.
+///
+/// Build it once for a pattern, then reuse it across many haystacks.
+pub struct Searcher {
+    pattern: Vec<u8>,
+    bad_char: [usize; 256],
 }
 
-pub struct BadCharMapByte {
-    t: [usize; 256],
-}
-
-
-impl Deref for BadCharMapByte {
-    type Target = [usize];
-
-    #[inline]
-    fn deref(&self) -> &[usize] {
-        self.t.as_ref()
-    }
-}
-
-pub struct BadCharMapByteRev {
-    t: [usize; 256],
-}
-
-
-impl Deref for BadCharMapByteRev {
-    type Target = [usize];
-
-    #[inline]
-    fn deref(&self) -> &[usize] {
-        self.t.as_ref()
-    }
-}
-
-impl BadCharMapByteRev {
-    pub fn create_bad_char_map<T: ByteSearchable>(
-        pattern: T,
-    ) -> Option<BadCharMapByteRev> {
-        let pattern_len = pattern.len();
-
-        if pattern_len == 0 {
+impl Searcher {
+    /// Returns `None` if the pattern is empty.
+    pub fn new(pattern: impl Into<Vec<u8>>) -> Option<Self> {
+        let pattern = pattern.into();
+        let plen = pattern.len();
+        if plen == 0 {
             return None;
         }
 
-        let pattern_len_dec = pattern_len - 1;
-
-        let mut bad_char_map = [pattern_len; 256];
-
-        for (i, c) in
-        pattern.iter().enumerate().rev().take(pattern_len_dec).map(|(i, &c)| (i, c as usize))
-        {
-            bad_char_map[c] = i;
+        let mut bad_char = [plen; 256];
+        for (i, &c) in pattern.iter().enumerate().rev().take(plen - 1) {
+            bad_char[c as usize] = i;
         }
 
-        Some(BadCharMapByteRev {
-            t: bad_char_map
-        })
-    }
-}
-
-
-pub struct Byte {
-    bad_char_map_rev: BadCharMapByteRev,
-    pattern:                Vec<u8>,
-}
-
-impl Byte {
-    pub fn from<T: ByteSearchable>(pattern: T) -> Option<Byte> {
-        let bad_char_map_rev = BadCharMapByteRev::create_bad_char_map(&pattern)?;
-
-        Some(Byte {
-            bad_char_map_rev,
-            pattern: pattern.iter().copied().collect(),
-        })
+        Some(Self { pattern, bad_char })
     }
 
-}
-
-impl Byte {
-    pub fn find_full_all_in<T: ByteSearchable>(&self, text: T, line_number: i32) {
-        let line_text: String = text.stringify();
-        let result: Vec<usize> = find_full(text, &self.pattern.clone(), &self.bad_char_map_rev, 0);
-        display_and_format(result, line_text, self.pattern.clone(), line_number);
-
-    }
-}
-
-pub fn find_full<TT: ByteSearchable, TP: ByteSearchable>(
-    text: TT,
-    pattern: TP,
-    bad_char_map: &BadCharMapByteRev,
-    limit: usize,
-) -> Vec<usize> {
-    let text_len = text.len();
-    let pattern_len = pattern.len();
-    let mut result = vec![];
-    if text_len == 0 || pattern_len == 0 || text_len < pattern_len {
-        return vec![];
+    #[allow(dead_code)]
+    pub fn pattern(&self) -> &[u8] {
+        &self.pattern
     }
 
-    let pattern_len_dec = pattern_len - 1;
+    /// Returns the byte offset of every occurrence of the pattern in `text`,
+    /// in ascending order.
+    pub fn find_all(&self, text: &[u8]) -> Vec<usize> {
+        let tlen = text.len();
+        let plen = self.pattern.len();
+        if tlen < plen {
+            return Vec::new();
+        }
 
-    let first_pattern_char = pattern.value_at(0);
+        let plen_dec = plen - 1;
+        let first = self.pattern[0];
+        let mut shift = tlen - 1;
+        let mut result = Vec::new();
 
-    let mut shift = text_len - 1;
-
-    let start_index = pattern_len_dec;
-
-
-
-    'outer: loop {
-        for (i, pc) in pattern.iter().copied().enumerate() {
-            if text.value_at(shift - pattern_len_dec + i) != pc {
-                if shift < pattern_len {
-                    break 'outer;
-                }
-                let s = bad_char_map[text.value_at(shift - pattern_len_dec) as usize].max({
-                    let c = text.value_at(shift - pattern_len);
-
-                    if c == first_pattern_char {
-                        1
-                    } else {
-                        bad_char_map[c as usize] + 1
+        'outer: loop {
+            for (i, &pc) in self.pattern.iter().enumerate() {
+                if text[shift - plen_dec + i] != pc {
+                    match self.next_shift(text, shift, first) {
+                        Some(next) => {
+                            shift = next;
+                            continue 'outer;
+                        }
+                        None => break 'outer,
                     }
-                });
-                if shift < s {
-                    break 'outer;
                 }
-                shift -= s;
-                if shift < start_index {
-                    break 'outer;
-                }
-                continue 'outer;
+            }
+
+            result.push(shift - plen_dec);
+            if shift == plen_dec {
+                break;
+            }
+            match self.next_shift(text, shift, first) {
+                Some(next) => shift = next,
+                None => break,
             }
         }
-        result.push(shift - pattern_len_dec);
 
-        if shift == start_index {
-            break;
-        }
-
-        if result.len() == limit {
-            break;
-        }
-
-        let s = bad_char_map[text.value_at(shift - pattern_len_dec) as usize].max({
-            let c = text.value_at(shift - pattern_len);
-
-            if c == first_pattern_char {
-                1
-            } else {
-                bad_char_map[c as usize] + 1
-            }
-        });
-        if shift < s {
-            break;
-        }
-        shift -= s;
-        if shift < start_index {
-            break;
-        }
-    }
-    result
-}
-
-fn display_and_format(result: Vec<usize>, text: String, pattern: Vec<u8>, line_num: i32) {
-    for matched in result {
-        let outable = ResultSet::from(matched, text.clone(), pattern.clone(), line_num).output_string;
-        println!("{outable}")
+        result.reverse();
+        result
     }
 
-}
+    #[inline]
+    fn next_shift(&self, text: &[u8], shift: usize, first: u8) -> Option<usize> {
+        let plen = self.pattern.len();
+        let plen_dec = plen - 1;
 
-
-
-struct ResultSet {
-    ps: String,
-    ts: String,
-    hit: usize,
-    output_string: String,
-    line_num: i32
-}
-
-impl ResultSet {
-    fn from( hit: usize, text: String, pattern: Vec<u8>, line_num: i32) -> ResultSet {
-        let ps = String::from_utf8(pattern).unwrap();
-        let ts = text;
-        let output_string = build_output(hit, ps.clone(), ts.clone(), line_num.to_string());
-
-        ResultSet { ps, ts, hit, output_string, line_num }
-
-
+        if shift < plen {
+            return None;
+        }
+        let a = self.bad_char[text[shift - plen_dec] as usize];
+        let c = text[shift - plen];
+        let b = if c == first {
+            1
+        } else {
+            self.bad_char[c as usize] + 1
+        };
+        let step = a.max(b);
+        let next = shift.checked_sub(step)?;
+        if next < plen_dec {
+            None
+        } else {
+            Some(next)
+        }
     }
 }
-
-fn build_output(hit: usize, ps: String, ts: String, line_num: String) -> String {
-    let ph_index: usize = (hit as i32 + ps.len() as i32) as usize;
-
-    let t_arr: Vec<char> = ts.chars().collect();
-
-    let prefix: String = t_arr.get(..hit).unwrap().iter().collect();
-
-    let matched: String = t_arr.get(hit..(hit + (ps.len()))).unwrap().iter().collect();
-
-    let suffix: String = t_arr.get(ph_index..).unwrap().iter().collect();
-
-    format!(
-        "{}: {}{}{}",
-        line_num.bright_purple(),
-        prefix,
-        matched.red(),
-        suffix
-
-    )
-
-}
-
-
