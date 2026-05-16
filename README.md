@@ -14,11 +14,15 @@ The binary lands at `target/release/parsey`.
 ## Use
 
 ```
-parsey <pattern> <file>
+parsey [-i] <pattern> <file>
 ```
 
 Prints each matching line prefixed with its line number, with all matches
 highlighted in red.
+
+Flags:
+
+- `-i` case insensitive matching (ASCII)
 
 Exit codes follow grep convention:
 
@@ -70,6 +74,7 @@ parsey '\d{3}-\d{4}' contacts.txt
 parsey '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}' access.log
 parsey '[Hh]ello' greetings.txt
 parsey '(GET|POST) /api/' access.log
+parsey -i 'error' app.log
 ```
 
 ## Limits

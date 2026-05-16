@@ -40,6 +40,19 @@ impl ClassSet {
         }
     }
 
+    pub fn fold_ascii_case(&mut self) {
+        for b in b'a'..=b'z' {
+            if self.contains(b) {
+                self.add(b ^ 0x20);
+            }
+        }
+        for b in b'A'..=b'Z' {
+            if self.contains(b) {
+                self.add(b ^ 0x20);
+            }
+        }
+    }
+
     pub fn digit() -> Self {
         let mut s = Self::new();
         s.add_range(b'0', b'9');

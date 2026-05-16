@@ -7,22 +7,31 @@ use std::process::ExitCode;
 
 use colored::Colorize;
 
-use parsey::regex::parse::parse;
+use parsey::regex::parse::{parse_with, ParseOptions};
 use parsey::regex::vm::Engine;
+
+struct CliArgs<'a> {
+    pattern: &'a str,
+    file_path: &'a str,
+    opts: ParseOptions,
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
+    let prog = args.first().map(String::as_str).unwrap_or("parsey");
 
-    let (pattern, file_path) = match args.as_slice() {
-        [_, pattern, file_path] => (pattern.as_str(), file_path.as_str()),
-        _ => {
-            let prog = args.first().map(String::as_str).unwrap_or("parsey");
-            eprintln!("Usage: {prog} <pattern> <file>");
+    let cli = match parse_cli(&args) {
+        Ok(cli) => cli,
+        Err(msg) => {
+            if !msg.is_empty() {
+                eprintln!("parsey: {msg}");
+            }
+            eprintln!("Usage: {prog} [-i] <pattern> <file>");
             return ExitCode::from(2);
         }
     };
 
-    match run(pattern, file_path) {
+    match run(cli.pattern, cli.file_path, cli.opts) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::from(1),
         Err(err) => {
@@ -32,8 +41,39 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(pattern: &str, file_path: &str) -> io::Result<bool> {
-    let ast = parse(pattern.as_bytes())
+fn parse_cli(args: &[String]) -> Result<CliArgs<'_>, String> {
+    let mut opts = ParseOptions::default();
+    let mut positional: Vec<&str> = Vec::new();
+    let mut flags_done = false;
+
+    for arg in args.iter().skip(1) {
+        let bytes = arg.as_bytes();
+        if !flags_done && arg == "--" {
+            flags_done = true;
+        } else if !flags_done && bytes.len() >= 2 && bytes[0] == b'-' && bytes[1] != b'-' && arg != "-" {
+            for &c in &bytes[1..] {
+                match c {
+                    b'i' => opts.case_insensitive = true,
+                    _ => return Err(format!("unknown flag '-{}'", c as char)),
+                }
+            }
+        } else {
+            positional.push(arg.as_str());
+        }
+    }
+
+    match positional.as_slice() {
+        [pattern, file_path] => Ok(CliArgs {
+            pattern,
+            file_path,
+            opts,
+        }),
+        _ => Err(String::new()),
+    }
+}
+
+fn run(pattern: &str, file_path: &str, opts: ParseOptions) -> io::Result<bool> {
+    let ast = parse_with(pattern.as_bytes(), opts)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
     let engine = Engine::from_ast(&ast)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;

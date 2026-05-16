@@ -1,6 +1,6 @@
 use crate::regex::ast::{Ast, ClassSet};
 use crate::regex::compile::{compile, CompileError, Label};
-use crate::regex::parse::{parse, ParseError, ParseErrorKind};
+use crate::regex::parse::{parse, parse_with, ParseError, ParseErrorKind, ParseOptions};
 use crate::regex::vm::{build_byte_table, find_anchored, literal_prefix, Engine};
 
 fn lit(b: u8) -> Ast {
@@ -1276,4 +1276,105 @@ fn engine_ipv4_like_pattern() {
         ),
         Some((10, 18))
     );
+}
+
+fn parse_ci(pat: &[u8]) -> Ast {
+    parse_with(pat, ParseOptions { case_insensitive: true }).unwrap()
+}
+
+fn engine_ci(pat: &[u8]) -> Engine {
+    Engine::from_ast(&parse_ci(pat)).unwrap()
+}
+
+fn find_ci(pat: &[u8], input: &[u8]) -> Option<(usize, usize)> {
+    engine_ci(pat).find(input)
+}
+
+fn ci_class(bytes: &[u8]) -> Ast {
+    let mut s = ClassSet::new();
+    for &b in bytes {
+        s.add(b);
+    }
+    Ast::Class(s)
+}
+
+#[test]
+fn parse_ci_folds_lowercase_letter() {
+    assert_eq!(parse_ci(b"a"), ci_class(&[b'a', b'A']));
+}
+
+#[test]
+fn parse_ci_folds_uppercase_letter() {
+    assert_eq!(parse_ci(b"A"), ci_class(&[b'a', b'A']));
+}
+
+#[test]
+fn parse_ci_leaves_non_letter_literal_alone() {
+    assert_eq!(parse_ci(b"7"), Ast::Literal(b'7'));
+    assert_eq!(parse_ci(b"-"), Ast::Literal(b'-'));
+}
+
+#[test]
+fn parse_ci_default_options_is_case_sensitive() {
+    assert_eq!(parse_with(b"a", ParseOptions::default()), Ok(Ast::Literal(b'a')));
+}
+
+#[test]
+fn parse_ci_class_range_folds_both_ways() {
+    assert_eq!(parse_ci(b"[a-c]"), {
+        let mut s = ClassSet::new();
+        s.add_range(b'a', b'c');
+        s.add_range(b'A', b'C');
+        Ast::Class(s)
+    });
+    assert_eq!(parse_ci(b"[A-C]"), {
+        let mut s = ClassSet::new();
+        s.add_range(b'a', b'c');
+        s.add_range(b'A', b'C');
+        Ast::Class(s)
+    });
+}
+
+#[test]
+fn parse_ci_negated_class_excludes_both_cases() {
+    let mut s = ClassSet::new();
+    s.add(b'a');
+    s.add(b'A');
+    s.negate();
+    assert_eq!(parse_ci(b"[^a]"), Ast::Class(s));
+}
+
+#[test]
+fn engine_ci_literal_matches_mixed_case() {
+    assert_eq!(find_ci(b"abc", b"--ABC--"), Some((2, 5)));
+    assert_eq!(find_ci(b"abc", b"--AbC--"), Some((2, 5)));
+    assert_eq!(find_ci(b"ERROR", b"oops error: bad"), Some((5, 10)));
+}
+
+#[test]
+fn engine_ci_class_matches_mixed_case() {
+    assert_eq!(find_ci(b"[a-z]+", b"  HELLO  "), Some((2, 7)));
+}
+
+#[test]
+fn engine_ci_negated_class_rejects_both_cases() {
+    assert_eq!(find_ci(b"[^a]+", b"AaAa"), None);
+    assert_eq!(find_ci(b"[^a]+", b"AaXY"), Some((2, 4)));
+}
+
+#[test]
+fn engine_ci_keeps_digits_intact() {
+    assert_eq!(find_ci(b"\\d{3}", b"id 7B 482 z"), Some((6, 9)));
+}
+
+#[test]
+fn engine_ci_alternation_each_branch_folds() {
+    assert_eq!(find_ci(b"foo|bar", b"--BAR--"), Some((2, 5)));
+    assert_eq!(find_ci(b"foo|bar", b"--FOO--"), Some((2, 5)));
+}
+
+#[test]
+fn engine_ci_anchored_match() {
+    assert_eq!(find_ci(b"^hello$", b"HELLO"), Some((0, 5)));
+    assert_eq!(find_ci(b"^hello$", b"HELLO!"), None);
 }

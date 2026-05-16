@@ -1,3 +1,4 @@
+
 // Pattern bytes -> Ast.
 
 use super::ast::{Ast, ClassSet};
@@ -69,7 +70,16 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ParseOptions {
+    pub case_insensitive: bool,
+}
+
 pub fn parse(pattern: &[u8]) -> Result<Ast, ParseError> {
+    parse_with(pattern, ParseOptions::default())
+}
+
+pub fn parse_with(pattern: &[u8], opts: ParseOptions) -> Result<Ast, ParseError> {
     let mut start = 0;
     let mut end = pattern.len();
     let mut start_anchor = false;
@@ -89,6 +99,7 @@ pub fn parse(pattern: &[u8]) -> Result<Ast, ParseError> {
         input: inner,
         pos: 0,
         offset: start,
+        opts,
     };
     let ast = p.parse_alternation()?;
     if p.pos < p.input.len() {
@@ -138,6 +149,7 @@ struct Parser<'a> {
     input: &'a [u8],
     pos: usize,
     offset: usize,
+    opts: ParseOptions,
 }
 
 impl<'a> Parser<'a> {
@@ -393,8 +405,19 @@ impl<'a> Parser<'a> {
             }
             Some(b) => {
                 self.bump();
-                Ok(Ast::Literal(b))
+                Ok(self.literal_ast(b))
             }
+        }
+    }
+
+    fn literal_ast(&self, b: u8) -> Ast {
+        if self.opts.case_insensitive && b.is_ascii_alphabetic() {
+            let mut s = ClassSet::new();
+            s.add(b);
+            s.add(b ^ 0x20);
+            Ast::Class(s)
+        } else {
+            Ast::Literal(b)
         }
     }
 
@@ -454,6 +477,9 @@ impl<'a> Parser<'a> {
             return Err(self.err(ParseErrorKind::EmptyCharacterClass, bracket_pos));
         }
 
+        if self.opts.case_insensitive {
+            set.fold_ascii_case();
+        }
         if negate {
             set.negate();
         }
