@@ -14,15 +14,24 @@ The binary lands at `target/release/parsey`.
 ## Use
 
 ```
-parsey [-i] <pattern> <file>
+parsey [-iRr] <pattern> [<file>... | -]
 ```
 
 Prints each matching line prefixed with its line number, with all matches
-highlighted in red.
+highlighted in red. With more than one input, or with `-r`, every line is
+also prefixed with the file path.
+
+Inputs:
+
+- One or more file paths.
+- `-` reads from standard input.
+- With no inputs, parsey reads standard input (or walks `.` if `-r` is set).
 
 Flags:
 
 - `-i` case insensitive matching (ASCII)
+- `-r`, `-R` recurse into directories. Symlinks inside the tree are skipped.
+  Combine short flags freely, e.g. `parsey -ir error logs/`.
 
 Exit codes follow grep convention:
 
@@ -75,11 +84,15 @@ parsey '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}' access.log
 parsey '[Hh]ello' greetings.txt
 parsey '(GET|POST) /api/' access.log
 parsey -i 'error' app.log
+parsey -r 'TODO' src/
+git diff | parsey '^\+\s*[a-z]'
 ```
 
 ## Limits
 
-- One file at a time. No stdin, recursion, or file globs.
+- No binary file detection. Files are scanned line by line as bytes; lines
+  with invalid UTF-8 are skipped on output.
+- No file globs or `.gitignore` awareness yet.
 - Pattern complexity is capped at 64 positions. Longer patterns return an
   error. Long literal alternations such as a hundred way `(foo|bar|...)`
   list will hit this.
