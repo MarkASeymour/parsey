@@ -9,8 +9,6 @@ A regex grep written by hand in Rust. No `regex` crate, no `clap`, no
 cargo build --release
 ```
 
-The binary lands at `target/release/parsey`.
-
 ## Use
 
 ```
@@ -31,7 +29,6 @@ Flags:
 
 - `-i` case insensitive matching (ASCII)
 - `-r`, `-R` recurse into directories. Symlinks inside the tree are skipped.
-  Combine short flags freely, e.g. `parsey -ir error logs/`.
 
 Exit codes follow grep convention:
 
@@ -104,7 +101,7 @@ git diff | parsey '^\+\s*[a-z]'
 
 ## Performance
 
-Built for speed. On a 32 MB log shaped file:
+On a 32 MB log shaped file:
 
 - about 1.4 GB/s on literal patterns (Boyer-Moore prefix scan plus NFA)
 - about 1 GB/s on most regex patterns
