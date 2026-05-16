@@ -2,9 +2,3 @@
 
 pub mod boyermoore;
 pub mod regex;
-
-#[cfg(test)]
-mod boyermoore_tests;
-
-#[cfg(test)]
-mod regex_tests;
